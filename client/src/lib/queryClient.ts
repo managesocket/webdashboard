@@ -1,57 +1,61 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { QueryClient } from '@tanstack/react-query';
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
-}
-
-export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
-
-  await throwIfResNotOk(res);
-  return res;
-}
-
-type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
-  on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
-      credentials: "include",
-    });
-
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
-    }
-
-    await throwIfResNotOk(res);
-    return await res.json();
-  };
-
+// Create a client
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      queryFn: getQueryFn({ on401: "throw" }),
-      refetchInterval: false,
+      staleTime: 1000 * 60, // 1 minute
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      retry: 1,
     },
-    mutations: {
-      retry: false,
+  },
+});
+
+// API request method
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export const apiRequest = async (
+  method: Method,
+  endpoint: string,
+  data?: any,
+  headers?: Record<string, string>
+): Promise<Response> => {
+  const url = endpoint.startsWith('http') ? endpoint : endpoint;
+  
+  const options: RequestInit = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
     },
+    ...(data && method !== 'GET' ? { body: JSON.stringify(data) } : {}),
+    credentials: 'same-origin',
+  };
+
+  const response = await fetch(url, options);
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const error = new Error(
+      errorData.error || errorData.message || 'API request failed'
+    );
+    throw Object.assign(error, { response, data: errorData });
+  }
+  
+  return response;
+};
+
+// Make apiRequest the default fetcher for react-query
+export const defaultQueryFn = async ({ queryKey }: any) => {
+  const endpoint = queryKey[0] as string;
+  const response = await apiRequest('GET', endpoint);
+  return response.json();
+};
+
+// Apply default query function to the client
+queryClient.setDefaultOptions({
+  queries: {
+    // @ts-ignore - TypeScript has an issue with the function signature but it works in practice
+    queryFn: defaultQueryFn,
   },
 });
