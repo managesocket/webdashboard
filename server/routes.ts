@@ -1,8 +1,18 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer } from "ws";
 import { storage } from "./storage";
 import { z } from "zod";
-import { insertUserSchema, insertGameStatSchema, insertGameTransactionSchema } from "@shared/schema";
+import { 
+  insertUserSchema, 
+  insertGameStatSchema, 
+  insertGameTransactionSchema,
+  insertJackpotPoolSchema,
+  insertMultiplierGameSchema,
+  insertFreeGameSchema,
+  insertRealMoneyTransactionSchema,
+  GameType
+} from "@shared/schema";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
@@ -294,6 +304,287 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }));
 
+  // ============== MULTIPLIER GAME ROUTES ================
+  
+  // Get all multiplier games
+  app.get(`${apiPrefix}/multiplier-games`, asyncHandler(async (req, res) => {
+    const activeOnly = req.query.activeOnly !== 'false';
+    const games = await storage.getMultiplierGames(activeOnly);
+    res.json(games);
+  }));
+
+  // Get a specific multiplier game
+  app.get(`${apiPrefix}/multiplier-games/:id`, asyncHandler(async (req, res) => {
+    const id = parseInt(req.params.id);
+    const game = await storage.getMultiplierGame(id);
+    
+    if (!game) {
+      return res.status(404).json({ error: "Game not found" });
+    }
+    
+    res.json(game);
+  }));
+
+  // Create a new multiplier game (admin only)
+  app.post(`${apiPrefix}/multiplier-games`, asyncHandler(async (req, res) => {
+    try {
+      const schema = insertMultiplierGameSchema;
+      const game = schema.parse(req.body);
+      const newGame = await storage.createMultiplierGame(game);
+      res.status(201).json(newGame);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: error.errors });
+      } else {
+        throw error;
+      }
+    }
+  }));
+
+  // Update a multiplier game (admin only)
+  app.patch(`${apiPrefix}/multiplier-games/:id`, asyncHandler(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+      const updatedGame = await storage.updateMultiplierGame(id, updates);
+      
+      if (!updatedGame) {
+        return res.status(404).json({ error: "Game not found" });
+      }
+      
+      res.json(updatedGame);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: error.errors });
+      } else {
+        throw error;
+      }
+    }
+  }));
+
+  // Play a multiplier game
+  app.post(`${apiPrefix}/play-multiplier`, asyncHandler(async (req, res) => {
+    try {
+      const schema = z.object({
+        userId: z.number(),
+        gameId: z.number(),
+        betAmount: z.number().positive(),
+        targetMultiplier: z.number().positive()
+      });
+      
+      const { userId, gameId, betAmount, targetMultiplier } = schema.parse(req.body);
+      const result = await storage.playMultiplierGame(userId, gameId, betAmount, targetMultiplier);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.result });
+      }
+      
+      res.json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: error.errors });
+      } else {
+        throw error;
+      }
+    }
+  }));
+
+  // ============== JACKPOT POOL ROUTES ================
+  
+  // Get all jackpot pools
+  app.get(`${apiPrefix}/jackpot-pools`, asyncHandler(async (req, res) => {
+    const activeOnly = req.query.activeOnly !== 'false';
+    const pools = await storage.getJackpotPools(activeOnly);
+    res.json(pools);
+  }));
+
+  // Get a specific jackpot pool
+  app.get(`${apiPrefix}/jackpot-pools/:id`, asyncHandler(async (req, res) => {
+    const id = parseInt(req.params.id);
+    const pool = await storage.getJackpotPool(id);
+    
+    if (!pool) {
+      return res.status(404).json({ error: "Jackpot pool not found" });
+    }
+    
+    res.json(pool);
+  }));
+
+  // Create a new jackpot pool (admin only)
+  app.post(`${apiPrefix}/jackpot-pools`, asyncHandler(async (req, res) => {
+    try {
+      const schema = insertJackpotPoolSchema;
+      const pool = schema.parse(req.body);
+      const newPool = await storage.createJackpotPool(pool);
+      res.status(201).json(newPool);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: error.errors });
+      } else {
+        throw error;
+      }
+    }
+  }));
+
+  // Update a jackpot pool (admin only)
+  app.patch(`${apiPrefix}/jackpot-pools/:id`, asyncHandler(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+      const updatedPool = await storage.updateJackpotPool(id, updates);
+      
+      if (!updatedPool) {
+        return res.status(404).json({ error: "Jackpot pool not found" });
+      }
+      
+      res.json(updatedPool);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: error.errors });
+      } else {
+        throw error;
+      }
+    }
+  }));
+
+  // ============== FREE GAMES ROUTES ================
+  
+  // Get user's free games
+  app.get(`${apiPrefix}/free-games/:userId`, asyncHandler(async (req, res) => {
+    const userId = parseInt(req.params.userId);
+    const gameType = req.query.gameType as GameType | undefined;
+    const freeGames = await storage.getUserFreeGames(userId, gameType);
+    res.json(freeGames);
+  }));
+
+  // Use a free game
+  app.post(`${apiPrefix}/free-games/:id/use`, asyncHandler(async (req, res) => {
+    const id = parseInt(req.params.id);
+    const updatedFreeGame = await storage.useUserFreeGame(id);
+    
+    if (!updatedFreeGame) {
+      return res.status(404).json({ error: "Free game not found or expired" });
+    }
+    
+    res.json(updatedFreeGame);
+  }));
+
+  // ============== REAL MONEY TRANSACTION ROUTES ================
+  
+  // Get user's real money transactions
+  app.get(`${apiPrefix}/real-money-transactions/:userId`, asyncHandler(async (req, res) => {
+    const userId = parseInt(req.params.userId);
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+    const transactions = await storage.getUserRealMoneyTransactions(userId, limit);
+    res.json(transactions);
+  }));
+
+  // Create a new real money transaction
+  app.post(`${apiPrefix}/real-money-transactions`, asyncHandler(async (req, res) => {
+    try {
+      const schema = insertRealMoneyTransactionSchema;
+      const transaction = schema.parse(req.body);
+      const newTransaction = await storage.createRealMoneyTransaction(transaction);
+      res.status(201).json(newTransaction);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: error.errors });
+      } else {
+        throw error;
+      }
+    }
+  }));
+
+  // Update a real money transaction status
+  app.patch(`${apiPrefix}/real-money-transactions/:id/status`, asyncHandler(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status, details } = req.body;
+      const updatedTransaction = await storage.updateRealMoneyTransactionStatus(id, status, details);
+      
+      if (!updatedTransaction) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+      
+      res.json(updatedTransaction);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: error.errors });
+      } else {
+        throw error;
+      }
+    }
+  }));
+
+  // Create HTTP server
   const httpServer = createServer(app);
+  
+  // Create WebSocket server for real-time multiplier games
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws/multiplier' });
+  
+  // WebSocket handling for real-time games
+  wss.on('connection', (ws) => {
+    console.log('Client connected to multiplier game WebSocket');
+    
+    // Send current active jackpot pools on connection
+    storage.getJackpotPools(true).then(pools => {
+      ws.send(JSON.stringify({
+        type: 'jackpot_pools',
+        data: pools
+      }));
+    });
+    
+    // Handle incoming messages from clients
+    ws.on('message', async (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        
+        // Handle different message types
+        if (data.type === 'play_game') {
+          // Play a game
+          const { userId, gameId, betAmount, targetMultiplier } = data;
+          const result = await storage.playMultiplierGame(
+            userId, 
+            gameId, 
+            betAmount, 
+            targetMultiplier
+          );
+          
+          // Send result back to the client
+          ws.send(JSON.stringify({
+            type: 'game_result',
+            data: result
+          }));
+          
+          // If successful, broadcast jackpot updates to all clients
+          if (result.success) {
+            const updatedPools = await storage.getJackpotPools(true);
+            
+            // Broadcast to all connected clients
+            wss.clients.forEach(client => {
+              if (client.readyState === 1) { // WebSocket.OPEN
+                client.send(JSON.stringify({
+                  type: 'jackpot_pools',
+                  data: updatedPools
+                }));
+              }
+            });
+          }
+        }
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Invalid message format or server error'
+        }));
+      }
+    });
+    
+    // Handle disconnection
+    ws.on('close', () => {
+      console.log('Client disconnected from multiplier game WebSocket');
+    });
+  });
+  
   return httpServer;
 }
