@@ -3,6 +3,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { insertUserSchema, insertGameStatSchema, insertGameTransactionSchema } from "@shared/schema";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API prefix
@@ -16,6 +18,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(500).json({ error: err.message || "Internal server error" });
       });
     };
+  
+  // Test database connection
+  app.get(`${apiPrefix}/db-test`, asyncHandler(async (req, res) => {
+    try {
+      // Test a simple query to verify database connection
+      const result = await db.execute(sql`SELECT NOW() AS server_time`);
+      res.json({
+        success: true,
+        message: "Database connection is working!",
+        serverTime: result.rows?.[0]?.server_time || new Date().toISOString(),
+        databaseType: "PostgreSQL"
+      });
+    } catch (error: any) {
+      console.error("Database connection error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to connect to database",
+        error: error.message || "Unknown error"
+      });
+    }
+  }));
 
   // User routes
   app.get(`${apiPrefix}/users/:discordId`, asyncHandler(async (req, res) => {
