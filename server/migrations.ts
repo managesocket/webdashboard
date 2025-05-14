@@ -18,14 +18,33 @@ async function main() {
           CREATE TYPE game_type AS ENUM (
             'blackjack', 'coinflip', 'crash', 'slots', 'roulette', 'dice',
             'race', 'roll', 'sevens', 'connectfour', 'tictactoe', 'higherorlower',
-            'poker', 'rockpaperscissors', 'findthelady'
+            'poker', 'rockpaperscissors', 'findthelady', 'multiplier', 'freespin'
           );
+        ELSE
+          -- Add new game types if the enum already exists
+          BEGIN
+            ALTER TYPE game_type ADD VALUE IF NOT EXISTS 'multiplier';
+            ALTER TYPE game_type ADD VALUE IF NOT EXISTS 'freespin';
+          EXCEPTION
+            WHEN duplicate_object THEN null;
+          END;
         END IF;
         
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'outcome') THEN
           CREATE TYPE outcome AS ENUM (
-            'win', 'loss', 'tie', 'crash', 'abort', 'pending'
+            'win', 'loss', 'tie', 'crash', 'abort', 'pending', 
+            'jackpot', 'bonus', 'freegames', 'multiplier'
           );
+        ELSE
+          -- Add new outcomes if the enum already exists
+          BEGIN
+            ALTER TYPE outcome ADD VALUE IF NOT EXISTS 'jackpot';
+            ALTER TYPE outcome ADD VALUE IF NOT EXISTS 'bonus';
+            ALTER TYPE outcome ADD VALUE IF NOT EXISTS 'freegames';
+            ALTER TYPE outcome ADD VALUE IF NOT EXISTS 'multiplier';
+          EXCEPTION
+            WHEN duplicate_object THEN null;
+          END;
         END IF;
       END $$;
     `);
@@ -209,6 +228,70 @@ async function main() {
       );
     `);
     
+    // Create jackpot pools
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS jackpot_pools (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        current_amount INTEGER NOT NULL DEFAULT 0,
+        seed_amount INTEGER NOT NULL DEFAULT 10000,
+        increment_rate DECIMAL(5,4) NOT NULL DEFAULT 0.0025,
+        last_won TIMESTAMP,
+        winning_user_id INTEGER REFERENCES users(id),
+        winning_amount INTEGER,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    
+    // Create multiplier games settings
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS multiplier_games (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL,
+        min_bet INTEGER NOT NULL DEFAULT 10,
+        max_bet INTEGER NOT NULL DEFAULT 10000,
+        house_edge DECIMAL(5,4) NOT NULL DEFAULT 0.0500,
+        max_multiplier DECIMAL(10,2) NOT NULL DEFAULT 100.00,
+        crash_chance_divisor DECIMAL(10,2) NOT NULL DEFAULT 33.33,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    
+    // Create free games tracking
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS free_games (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        game_type game_type NOT NULL,
+        remaining_games INTEGER NOT NULL,
+        multiplier DECIMAL(5,2) NOT NULL DEFAULT 1.00,
+        bet_amount INTEGER NOT NULL,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    
+    // Create real money transactions
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS real_money_transactions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        transaction_type TEXT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        currency_code TEXT NOT NULL DEFAULT 'USD',
+        status TEXT NOT NULL,
+        external_reference TEXT,
+        details JSONB,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    
     // Create indexes for performance
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_user_discord_id ON users(discord_id);
@@ -225,6 +308,15 @@ async function main() {
       CREATE INDEX IF NOT EXISTS idx_lottery_tickets_user_id ON lottery_tickets(user_id);
       CREATE INDEX IF NOT EXISTS idx_daily_goals_user_id ON daily_goals(user_id);
       CREATE INDEX IF NOT EXISTS idx_daily_goals_expires_at ON daily_goals(expires_at);
+      
+      -- Indexes for new tables
+      CREATE INDEX IF NOT EXISTS idx_jackpot_pools_winner_id ON jackpot_pools(winning_user_id);
+      CREATE INDEX IF NOT EXISTS idx_jackpot_pools_active ON jackpot_pools(is_active);
+      CREATE INDEX IF NOT EXISTS idx_free_games_user_id ON free_games(user_id);
+      CREATE INDEX IF NOT EXISTS idx_free_games_expires ON free_games(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_multiplier_games_active ON multiplier_games(is_active);
+      CREATE INDEX IF NOT EXISTS idx_real_money_transactions_user_id ON real_money_transactions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_real_money_transactions_status ON real_money_transactions(status);
     `);
     
     console.log('Migration completed successfully');

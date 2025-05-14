@@ -48,6 +48,41 @@ export interface IStorage {
   playCrash(userId: number, betAmount: number, cashoutMultiplier: number): Promise<{ success: boolean; crashPoint: number; result: string; winAmount?: number }>;
   playRoulette(userId: number, betAmount: number, betType: string, betValue: string | number): Promise<{ success: boolean; result: number; winAmount?: number }>;
   playDice(userId: number, betAmount: number, prediction: 'higher' | 'lower', targetNumber: number): Promise<{ success: boolean; roll: number; result: string; winAmount?: number }>;
+  
+  // Jackpot pools management
+  getJackpotPools(activeOnly?: boolean): Promise<JackpotPool[]>;
+  getJackpotPool(poolId: number): Promise<JackpotPool | undefined>;
+  createJackpotPool(pool: InsertJackpotPool): Promise<JackpotPool>;
+  updateJackpotPool(poolId: number, updates: Partial<JackpotPool>): Promise<JackpotPool | undefined>;
+  contributeToJackpot(poolId: number, amount: number): Promise<JackpotPool | undefined>;
+  awardJackpot(poolId: number, userId: number, amount: number): Promise<JackpotPool | undefined>;
+  
+  // Multiplier game management
+  getMultiplierGames(activeOnly?: boolean): Promise<MultiplierGame[]>;
+  getMultiplierGame(gameId: number): Promise<MultiplierGame | undefined>;
+  createMultiplierGame(game: InsertMultiplierGame): Promise<MultiplierGame>;
+  updateMultiplierGame(gameId: number, updates: Partial<MultiplierGame>): Promise<MultiplierGame | undefined>;
+  playMultiplierGame(userId: number, gameId: number, betAmount: number, targetMultiplier: number): Promise<{ 
+    success: boolean; 
+    result: string; 
+    multiplier: number; 
+    winAmount?: number;
+    crashPoint?: number;
+    jackpotWon?: boolean;
+    jackpotAmount?: number;
+    freeGamesWon?: number;
+    freeGamesMultiplier?: number;
+  }>;
+  
+  // Free games management
+  getUserFreeGames(userId: number, gameType?: GameType): Promise<FreeGame[]>;
+  addUserFreeGames(freeGame: InsertFreeGame): Promise<FreeGame>;
+  useUserFreeGame(freeGameId: number): Promise<FreeGame | undefined>;
+  
+  // Real money transactions
+  createRealMoneyTransaction(transaction: InsertRealMoneyTransaction): Promise<RealMoneyTransaction>;
+  getUserRealMoneyTransactions(userId: number, limit?: number): Promise<RealMoneyTransaction[]>;
+  updateRealMoneyTransactionStatus(transactionId: number, status: string, details?: any): Promise<RealMoneyTransaction | undefined>;
 }
 
 // NOTE: This MemStorage implementation has some TypeScript compatibility issues

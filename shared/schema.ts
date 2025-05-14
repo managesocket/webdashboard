@@ -430,6 +430,10 @@ export type ActiveBoost = typeof activeBoosts.$inferSelect;
 export type LotteryDraw = typeof lotteryDraws.$inferSelect;
 export type LotteryTicket = typeof lotteryTickets.$inferSelect;
 export type DailyGoal = typeof dailyGoals.$inferSelect;
+export type JackpotPool = typeof jackpotPools.$inferSelect;
+export type MultiplierGame = typeof multiplierGames.$inferSelect;
+export type FreeGame = typeof freeGames.$inferSelect;
+export type RealMoneyTransaction = typeof realMoneyTransactions.$inferSelect;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertGameStat = z.infer<typeof insertGameStatSchema>;
@@ -443,6 +447,10 @@ export type InsertActiveBoost = z.infer<typeof insertActiveBoostSchema>;
 export type InsertLotteryDraw = z.infer<typeof insertLotteryDrawSchema>;
 export type InsertLotteryTicket = z.infer<typeof insertLotteryTicketSchema>;
 export type InsertDailyGoal = z.infer<typeof insertDailyGoalSchema>;
+export type InsertJackpotPool = z.infer<typeof insertJackpotPoolSchema>;
+export type InsertMultiplierGame = z.infer<typeof insertMultiplierGameSchema>;
+export type InsertFreeGame = z.infer<typeof insertFreeGameSchema>;
+export type InsertRealMoneyTransaction = z.infer<typeof insertRealMoneyTransactionSchema>;
 
 // Game Types enum
 export enum GameType {
