@@ -1,7 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { WebSocketServer } from 'ws';
 
 const app = express();
 app.use(express.json());
@@ -41,41 +40,15 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  // Setup WebSocket server for live game updates
-  const wss = new WebSocketServer({ server });
-
-  wss.on('connection', (ws) => {
-    log('WebSocket client connected');
-    
-    ws.on('message', (message) => {
-      log(`Received WebSocket message: ${message}`);
-      
-      try {
-        const parsedMessage = JSON.parse(message.toString());
-        
-        // Handle different message types
-        if (parsedMessage.type === 'subscribe') {
-          // Subscribe to events
-          ws.send(JSON.stringify({ type: 'subscribed', channel: parsedMessage.channel }));
-        }
-      } catch (err) {
-        log(`Error processing WebSocket message: ${err}`);
-      }
-    });
-    
-    ws.on('close', () => {
-      log('WebSocket client disconnected');
-    });
+  // Basic health check endpoint
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
-
-  // Broadcast game events to connected clients
+  
+  // Create a simple mock event system instead of WebSockets
   global.broadcastGameEvent = (event: string, data: any) => {
-    const message = JSON.stringify({ type: 'game_event', event, data });
-    wss.clients.forEach(client => {
-      if (client.readyState === 1) { // WebSocket.OPEN
-        client.send(message);
-      }
-    });
+    log(`Game event: ${event} with data: ${JSON.stringify(data)}`);
+    // Without WebSockets, we'll just log events for now
   };
 
   // Error handling middleware
@@ -84,7 +57,7 @@ app.use((req, res, next) => {
     const message = err.message || "Internal Server Error";
 
     res.status(status).json({ message });
-    throw err;
+    console.error("Server error:", err);
   });
 
   // Setup vite in development or serve static files in production
@@ -105,7 +78,7 @@ app.use((req, res, next) => {
   });
 })();
 
-// Extend global variable for broadcasting game events
+// Extend global variable for broadcasting game events (without WebSockets)
 declare global {
   var broadcastGameEvent: (event: string, data: any) => void;
 }
