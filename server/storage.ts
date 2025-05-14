@@ -1,13 +1,25 @@
 import { 
   users, 
   gameStats, 
-  gameTransactions, 
+  gameTransactions,
+  jackpotPools,
+  multiplierGames,
+  freeGames,
+  realMoneyTransactions,
   type User, 
   type InsertUser,
   type GameStat,
   type InsertGameStat,
   type GameTransaction,
   type InsertGameTransaction,
+  type JackpotPool,
+  type InsertJackpotPool,
+  type MultiplierGame,
+  type InsertMultiplierGame,
+  type FreeGame,
+  type InsertFreeGame,
+  type RealMoneyTransaction,
+  type InsertRealMoneyTransaction,
   GameType,
   SLOT_SYMBOLS,
   outcomeEnum
@@ -1654,6 +1666,404 @@ export class DatabaseStorage implements IStorage {
   private isBlackNumber(num: number): boolean {
     if (num === 0) return false;
     return !this.isRedNumber(num);
+  }
+
+  // JACKPOT POOLS MANAGEMENT
+  async getJackpotPools(activeOnly = true): Promise<JackpotPool[]> {
+    let query = db.select().from(jackpotPools);
+    
+    if (activeOnly) {
+      query = query.where(eq(jackpotPools.isActive, true));
+    }
+    
+    return query.orderBy(desc(jackpotPools.currentAmount));
+  }
+  
+  async getJackpotPool(poolId: number): Promise<JackpotPool | undefined> {
+    const [pool] = await db
+      .select()
+      .from(jackpotPools)
+      .where(eq(jackpotPools.id, poolId));
+      
+    return pool || undefined;
+  }
+  
+  async createJackpotPool(pool: InsertJackpotPool): Promise<JackpotPool> {
+    const [newPool] = await db
+      .insert(jackpotPools)
+      .values(pool)
+      .returning();
+      
+    return newPool;
+  }
+  
+  async updateJackpotPool(poolId: number, updates: Partial<JackpotPool>): Promise<JackpotPool | undefined> {
+    const [updatedPool] = await db
+      .update(jackpotPools)
+      .set({
+        ...updates,
+        updatedAt: new Date()
+      })
+      .where(eq(jackpotPools.id, poolId))
+      .returning();
+      
+    return updatedPool || undefined;
+  }
+  
+  async contributeToJackpot(poolId: number, amount: number): Promise<JackpotPool | undefined> {
+    const pool = await this.getJackpotPool(poolId);
+    if (!pool || !pool.isActive) {
+      return undefined;
+    }
+    
+    const [updatedPool] = await db
+      .update(jackpotPools)
+      .set({ 
+        currentAmount: sql`${jackpotPools.currentAmount} + ${amount}`,
+        updatedAt: new Date()
+      })
+      .where(eq(jackpotPools.id, poolId))
+      .returning();
+      
+    return updatedPool || undefined;
+  }
+  
+  async awardJackpot(poolId: number, userId: number, amount: number): Promise<JackpotPool | undefined> {
+    // Get the pool
+    const pool = await this.getJackpotPool(poolId);
+    if (!pool || !pool.isActive || pool.currentAmount < amount) {
+      return undefined;
+    }
+    
+    // Get the user
+    const user = await this.getUser(userId);
+    if (!user) {
+      return undefined;
+    }
+    
+    // Award the jackpot to the user
+    await this.updateUserBalance(userId, user.balance + amount);
+    
+    // Add transaction
+    await this.addGameTransaction({
+      userId,
+      gameType: 'multiplier',
+      betAmount: 0, // Not applicable for jackpot win
+      outcome: 'jackpot',
+      winAmount: amount,
+      gameDetails: { poolId, poolName: pool.name }
+    });
+    
+    // Update pool
+    const [updatedPool] = await db
+      .update(jackpotPools)
+      .set({ 
+        currentAmount: pool.seedAmount, // Reset to seed amount
+        lastWon: new Date(),
+        winningUserId: userId,
+        winningAmount: amount,
+        updatedAt: new Date()
+      })
+      .where(eq(jackpotPools.id, poolId))
+      .returning();
+      
+    return updatedPool || undefined;
+  }
+  
+  // MULTIPLIER GAME MANAGEMENT
+  async getMultiplierGames(activeOnly = true): Promise<MultiplierGame[]> {
+    let query = db.select().from(multiplierGames);
+    
+    if (activeOnly) {
+      query = query.where(eq(multiplierGames.isActive, true));
+    }
+    
+    return query.orderBy(multiplierGames.name);
+  }
+  
+  async getMultiplierGame(gameId: number): Promise<MultiplierGame | undefined> {
+    const [game] = await db
+      .select()
+      .from(multiplierGames)
+      .where(eq(multiplierGames.id, gameId));
+      
+    return game || undefined;
+  }
+  
+  async createMultiplierGame(game: InsertMultiplierGame): Promise<MultiplierGame> {
+    const [newGame] = await db
+      .insert(multiplierGames)
+      .values(game)
+      .returning();
+      
+    return newGame;
+  }
+  
+  async updateMultiplierGame(gameId: number, updates: Partial<MultiplierGame>): Promise<MultiplierGame | undefined> {
+    const [updatedGame] = await db
+      .update(multiplierGames)
+      .set({ 
+        ...updates, 
+        updatedAt: new Date() 
+      })
+      .where(eq(multiplierGames.id, gameId))
+      .returning();
+      
+    return updatedGame || undefined;
+  }
+  
+  async playMultiplierGame(userId: number, gameId: number, betAmount: number, targetMultiplier: number): Promise<{ 
+    success: boolean; 
+    result: string; 
+    multiplier: number; 
+    winAmount?: number;
+    crashPoint?: number;
+    jackpotWon?: boolean;
+    jackpotAmount?: number;
+    freeGamesWon?: number;
+    freeGamesMultiplier?: number;
+  }> {
+    // Get user
+    const user = await this.getUser(userId);
+    if (!user) {
+      return { success: false, result: "User not found", multiplier: 0 };
+    }
+    
+    // Get game config
+    const game = await this.getMultiplierGame(gameId);
+    if (!game || !game.isActive) {
+      return { success: false, result: "Game not available", multiplier: 0 };
+    }
+    
+    // Check if user has enough balance
+    if (user.balance < betAmount) {
+      return { success: false, result: "Insufficient balance", multiplier: 0 };
+    }
+    
+    // Check if bet amount is within limits
+    if (betAmount < game.minBet || betAmount > game.maxBet) {
+      return { success: false, result: `Bet amount must be between ${game.minBet} and ${game.maxBet}`, multiplier: 0 };
+    }
+    
+    // Check if target multiplier is valid
+    if (targetMultiplier < 1.01 || targetMultiplier > Number(game.maxMultiplier)) {
+      return { success: false, result: `Target multiplier must be between 1.01 and ${game.maxMultiplier}`, multiplier: 0 };
+    }
+    
+    // Generate crash point using formula with house edge
+    const houseEdgeDecimal = Number(game.houseEdge);
+    const crashChanceDivisor = Number(game.crashChanceDivisor);
+    const crashPointFloat = Math.max(1.0, (1 - houseEdgeDecimal) / (Math.random() / crashChanceDivisor));
+    const crashPoint = parseFloat(crashPointFloat.toFixed(2));
+    
+    // Check if user cashed out before crash
+    const won = targetMultiplier <= crashPoint;
+    const multiplier = won ? targetMultiplier : crashPoint;
+    const winAmount = won ? Math.floor(betAmount * targetMultiplier) : 0;
+    
+    // Initialize extra reward variables
+    let jackpotWon = false;
+    let jackpotAmount = 0;
+    let freeGamesWon = 0;
+    let freeGamesMultiplier = 0;
+    
+    // Check for jackpot (very rare random chance on win, higher with higher bets)
+    if (won && Math.random() < 0.001 * (betAmount / 100)) {
+      // Get active jackpot pools
+      const pools = await this.getJackpotPools(true);
+      if (pools.length > 0) {
+        // Select a random pool
+        const randomPool = pools[Math.floor(Math.random() * pools.length)];
+        jackpotWon = true;
+        jackpotAmount = randomPool.currentAmount;
+        
+        // Award jackpot
+        await this.awardJackpot(randomPool.id, userId, jackpotAmount);
+      }
+    }
+    
+    // Check for free games (moderate chance on high multiplier wins)
+    if (won && targetMultiplier >= 5 && Math.random() < 0.03 * (targetMultiplier / 10)) {
+      freeGamesWon = Math.floor(Math.random() * 10) + 1; // 1-10 free games
+      freeGamesMultiplier = parseFloat((Math.random() * 1.5 + 1).toFixed(2)); // 1.0-2.5x multiplier
+      
+      // Add free games to user
+      await this.addUserFreeGames({
+        userId,
+        gameType: 'multiplier',
+        remainingGames: freeGamesWon,
+        multiplier: freeGamesMultiplier,
+        betAmount: betAmount,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // Expires in 1 week
+      });
+    }
+    
+    // Update user balance
+    const newBalance = won ? user.balance + winAmount - betAmount : user.balance - betAmount;
+    await this.updateUserBalance(userId, newBalance);
+    
+    // Update game stats
+    await this.updateGameStats(userId, {
+      gamesPlayed: sql`${gameStats.gamesPlayed} + 1`,
+      gamesWon: won ? sql`${gameStats.gamesWon} + 1` : gameStats.gamesWon,
+      gamesLost: !won ? sql`${gameStats.gamesLost} + 1` : gameStats.gamesLost,
+      totalWagered: sql`${gameStats.totalWagered} + ${betAmount}`,
+      totalWon: won ? sql`${gameStats.totalWon} + ${winAmount}` : gameStats.totalWon,
+      totalLost: !won ? sql`${gameStats.totalLost} + ${betAmount}` : gameStats.totalLost,
+      highestWin: won ? sql`GREATEST(${gameStats.highestWin}, ${winAmount})` : gameStats.highestWin,
+      highestLoss: !won ? sql`GREATEST(${gameStats.highestLoss}, ${betAmount})` : gameStats.highestLoss,
+      favoriteGame: 'multiplier',
+      lastPlayed: new Date()
+    });
+    
+    // Contribute to jackpot pools (small percentage of each bet)
+    const activePools = await this.getJackpotPools(true);
+    for (const pool of activePools) {
+      const contribution = Math.floor(betAmount * Number(pool.incrementRate));
+      if (contribution > 0) {
+        await this.contributeToJackpot(pool.id, contribution);
+      }
+    }
+    
+    // Add transaction
+    await this.addGameTransaction({
+      userId,
+      gameType: 'multiplier',
+      betAmount,
+      outcome: won ? (jackpotWon ? 'jackpot' : (freeGamesWon > 0 ? 'bonus' : 'win')) : 'crash',
+      winAmount: won ? winAmount : 0,
+      gameDetails: { 
+        gameId,
+        gameName: game.name,
+        targetMultiplier,
+        crashPoint,
+        jackpotWon,
+        jackpotAmount,
+        freeGamesWon,
+        freeGamesMultiplier
+      }
+    });
+    
+    // Prepare result message
+    let result = '';
+    if (!won) {
+      result = `💥 Game crashed at ${crashPoint}x before your cashout at ${targetMultiplier}x. You lost ${betAmount} coins.`;
+    } else {
+      result = `📈 Cashed out at ${targetMultiplier}x before crash at ${crashPoint}x. You won ${winAmount} coins!`;
+      
+      if (jackpotWon) {
+        result += ` 🎊 JACKPOT! You also won a jackpot of ${jackpotAmount} coins!`;
+      }
+      
+      if (freeGamesWon > 0) {
+        result += ` 🎁 You won ${freeGamesWon} free games with a ${freeGamesMultiplier}x multiplier!`;
+      }
+    }
+    
+    return { 
+      success: true, 
+      result,
+      multiplier: Number(multiplier),
+      winAmount: won ? winAmount : 0,
+      crashPoint,
+      jackpotWon,
+      jackpotAmount,
+      freeGamesWon,
+      freeGamesMultiplier
+    };
+  }
+  
+  // FREE GAMES MANAGEMENT
+  async getUserFreeGames(userId: number, gameType?: GameType): Promise<FreeGame[]> {
+    let query = db
+      .select()
+      .from(freeGames)
+      .where(and(
+        eq(freeGames.userId, userId),
+        sql`${freeGames.remainingGames} > 0`,
+        sql`(${freeGames.expiresAt} IS NULL OR ${freeGames.expiresAt} > NOW())`
+      ));
+    
+    if (gameType) {
+      query = query.where(eq(freeGames.gameType, gameType));
+    }
+    
+    return query.orderBy(freeGames.expiresAt);
+  }
+  
+  async addUserFreeGames(freeGame: InsertFreeGame): Promise<FreeGame> {
+    const [newFreeGame] = await db
+      .insert(freeGames)
+      .values(freeGame)
+      .returning();
+      
+    return newFreeGame;
+  }
+  
+  async useUserFreeGame(freeGameId: number): Promise<FreeGame | undefined> {
+    // Get the free game
+    const [freeGame] = await db
+      .select()
+      .from(freeGames)
+      .where(eq(freeGames.id, freeGameId));
+      
+    if (!freeGame || freeGame.remainingGames <= 0) {
+      return undefined;
+    }
+    
+    // Check if expired
+    if (freeGame.expiresAt && new Date(freeGame.expiresAt) < new Date()) {
+      return undefined;
+    }
+    
+    // Decrement remaining games
+    const [updatedFreeGame] = await db
+      .update(freeGames)
+      .set({ remainingGames: freeGame.remainingGames - 1 })
+      .where(eq(freeGames.id, freeGameId))
+      .returning();
+      
+    return updatedFreeGame || undefined;
+  }
+  
+  // REAL MONEY TRANSACTIONS
+  async createRealMoneyTransaction(transaction: InsertRealMoneyTransaction): Promise<RealMoneyTransaction> {
+    const [newTransaction] = await db
+      .insert(realMoneyTransactions)
+      .values(transaction)
+      .returning();
+      
+    return newTransaction;
+  }
+  
+  async getUserRealMoneyTransactions(userId: number, limit = 10): Promise<RealMoneyTransaction[]> {
+    const transactions = await db
+      .select()
+      .from(realMoneyTransactions)
+      .where(eq(realMoneyTransactions.userId, userId))
+      .orderBy(desc(realMoneyTransactions.createdAt))
+      .limit(limit);
+      
+    return transactions;
+  }
+  
+  async updateRealMoneyTransactionStatus(transactionId: number, status: string, details?: any): Promise<RealMoneyTransaction | undefined> {
+    let updateObj: any = { 
+      status, 
+      updatedAt: new Date()
+    };
+    
+    if (details) {
+      updateObj.details = details;
+    }
+    
+    const [updatedTransaction] = await db
+      .update(realMoneyTransactions)
+      .set(updateObj)
+      .where(eq(realMoneyTransactions.id, transactionId))
+      .returning();
+      
+    return updatedTransaction || undefined;
   }
 }
 
