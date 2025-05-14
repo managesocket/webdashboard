@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, jsonb, boolean, timestamp, pgEnum, date } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, jsonb, boolean, timestamp, pgEnum, date, numeric, decimal } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -19,7 +19,9 @@ export const gameTypeEnum = pgEnum('game_type', [
   'higherorlower',
   'poker',
   'rockpaperscissors',
-  'findthelady'
+  'findthelady',
+  'multiplier',  // Real-time multiplier game
+  'freespin'     // Free spins bonus game
 ]);
 
 export const outcomeEnum = pgEnum('outcome', [
@@ -28,7 +30,11 @@ export const outcomeEnum = pgEnum('outcome', [
   'tie',
   'crash',
   'abort',
-  'pending'
+  'pending',
+  'jackpot',      // Jackpot win
+  'bonus',        // Bonus game triggered
+  'freegames',    // Free games triggered
+  'multiplier'    // Multiplier win
 ]);
 
 // Users table
@@ -186,6 +192,62 @@ export const dailyGoals = pgTable("daily_goals", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Jackpot pools
+export const jackpotPools = pgTable("jackpot_pools", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  currentAmount: integer("current_amount").default(0).notNull(),
+  seedAmount: integer("seed_amount").default(10000).notNull(), // Starting amount after win
+  incrementRate: decimal("increment_rate", { precision: 5, scale: 4 }).default("0.0025").notNull(), // % of each bet added
+  lastWon: timestamp("last_won"),
+  winningUserId: integer("winning_user_id").references(() => users.id),
+  winningAmount: integer("winning_amount"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Multiplier game settings (for crash-like games)
+export const multiplierGames = pgTable("multiplier_games", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull(),
+  minBet: integer("min_bet").default(10).notNull(),
+  maxBet: integer("max_bet").default(10000).notNull(),
+  houseEdge: decimal("house_edge", { precision: 5, scale: 4 }).default("0.0500").notNull(), // 5% house edge
+  maxMultiplier: decimal("max_multiplier", { precision: 10, scale: 2 }).default("100.00").notNull(),
+  crashChanceDivisor: decimal("crash_chance_divisor", { precision: 10, scale: 2 }).default("33.33").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Free games tracking
+export const freeGames = pgTable("free_games", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  gameType: gameTypeEnum("game_type").notNull(),
+  remainingGames: integer("remaining_games").notNull(),
+  multiplier: decimal("multiplier", { precision: 5, scale: 2 }).default("1.00").notNull(), // Multiplier for these free games
+  betAmount: integer("bet_amount").notNull(), // Original bet that triggered free games
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Real money mode transactions (for future implementation)
+export const realMoneyTransactions = pgTable("real_money_transactions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  transactionType: text("transaction_type").notNull(), // deposit, withdrawal, conversion
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currencyCode: text("currency_code").default("USD").notNull(),
+  status: text("status").notNull(), // pending, completed, failed, cancelled
+  externalReference: text("external_reference"), // Reference ID from payment processor
+  details: jsonb("details"), // Additional transaction details
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Define relations
 export const usersRelations = relations(users, ({ many }) => ({
   gameStats: many(gameStats),
@@ -197,6 +259,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   activeBoosts: many(activeBoosts),
   lotteryTickets: many(lotteryTickets),
   dailyGoals: many(dailyGoals),
+  freeGames: many(freeGames),
+  realMoneyTransactions: many(realMoneyTransactions),
+  wonJackpots: many(jackpotPools, { relationName: "jackpotWinner" })
 }));
 
 export const gameStatsRelations = relations(gameStats, ({ one }) => ({
@@ -239,6 +304,28 @@ export const lotteryTicketsRelations = relations(lotteryTickets, ({ one }) => ({
   draw: one(lotteryDraws, {
     fields: [lotteryTickets.drawId],
     references: [lotteryDraws.id],
+  }),
+}));
+
+export const jackpotPoolsRelations = relations(jackpotPools, ({ one }) => ({
+  winner: one(users, {
+    fields: [jackpotPools.winningUserId],
+    references: [users.id],
+    relationName: "jackpotWinner"
+  }),
+}));
+
+export const freeGamesRelations = relations(freeGames, ({ one }) => ({
+  user: one(users, {
+    fields: [freeGames.userId],
+    references: [users.id],
+  }),
+}));
+
+export const realMoneyTransactionsRelations = relations(realMoneyTransactions, ({ one }) => ({
+  user: one(users, {
+    fields: [realMoneyTransactions.userId],
+    references: [users.id],
   }),
 }));
 
@@ -307,6 +394,29 @@ export const insertDailyGoalSchema = createInsertSchema(dailyGoals).omit({
   createdAt: true,
 });
 
+export const insertJackpotPoolSchema = createInsertSchema(jackpotPools).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMultiplierGameSchema = createInsertSchema(multiplierGames).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertFreeGameSchema = createInsertSchema(freeGames).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertRealMoneyTransactionSchema = createInsertSchema(realMoneyTransactions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type GameStat = typeof gameStats.$inferSelect;
@@ -350,7 +460,9 @@ export enum GameType {
   HIGHERORLOWER = "higherorlower",
   POKER = "poker",
   ROCKPAPERSCISSORS = "rockpaperscissors",
-  FINDTHELADY = "findthelady"
+  FINDTHELADY = "findthelady",
+  MULTIPLIER = "multiplier",  // Real-time multiplier game
+  FREESPIN = "freespin"  // Free spins bonus game
 }
 
 // Slot machine symbols with their multipliers
