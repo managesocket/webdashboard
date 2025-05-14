@@ -50,6 +50,10 @@ export interface IStorage {
   playDice(userId: number, betAmount: number, prediction: 'higher' | 'lower', targetNumber: number): Promise<{ success: boolean; roll: number; result: string; winAmount?: number }>;
 }
 
+// NOTE: This MemStorage implementation has some TypeScript compatibility issues
+// with the iterator usage in getTopWinners and getTopWinRate methods.
+// We're keeping it as a fallback, but the DatabaseStorage implementation 
+// below should be used instead.
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
   private gameStats: Map<number, GameStat>; 
@@ -165,6 +169,8 @@ export class MemStorage implements IStorage {
     const newTransaction: GameTransaction = { 
       ...transaction, 
       id, 
+      winAmount: transaction.winAmount || 0,
+      gameDetails: transaction.gameDetails || null,
       timestamp: new Date() 
     };
     this.transactions.push(newTransaction);
