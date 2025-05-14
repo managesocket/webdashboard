@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -41,7 +42,7 @@ app.use((req, res, next) => {
   const server = await registerRoutes(app);
 
   // Basic health check endpoint
-  app.get('/api/health', (req, res) => {
+  app.get('/api/health', (_, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
   
@@ -67,12 +68,12 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  const port = 5000;
+  // ALWAYS serve the app on port 5000 or use environment variable
+  const port = process.env.PORT || 5000;
   server.listen({
     port,
-    host: "0.0.0.0",
-    reusePort: true,
+    host: process.env.HOST || "0.0.0.0",
+    // reusePort: true, // Removed due to platform incompatibility
   }, () => {
     log(`Piglet Gambling Bot server running on port ${port}`);
   });

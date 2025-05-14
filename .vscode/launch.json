@@ -5,18 +5,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "node-terminal",
-            "name": "Run Script: dev",
+            "name": "PowerShell: Launch Current File",
+            "type": "PowerShell",
             "request": "launch",
-            "command": "npm run dev",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Docker Node.js Launch",
-            "type": "docker",
-            "request": "launch",
-            "preLaunchTask": "docker-run: debug",
-            "platform": "node"
+            "script": "./run.ps1",
+            "args": []
         }
     ]
 }
