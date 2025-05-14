@@ -1,0 +1,846 @@
+import { 
+  users, 
+  gameStats, 
+  gameTransactions, 
+  type User, 
+  type InsertUser,
+  type GameStat,
+  type InsertGameStat,
+  type GameTransaction,
+  type InsertGameTransaction,
+  GameType,
+  SLOT_SYMBOLS
+} from "@shared/schema";
+
+// Storage interface for the Discord Bot
+export interface IStorage {
+  // User management
+  getUser(id: number): Promise<User | undefined>;
+  getUserByDiscordId(discordId: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUserBalance(userId: number, newBalance: number): Promise<User | undefined>;
+  
+  // Game stats management
+  getGameStats(userId: number): Promise<GameStat | undefined>;
+  createGameStats(stats: InsertGameStat): Promise<GameStat>;
+  updateGameStats(userId: number, updates: Partial<GameStat>): Promise<GameStat | undefined>;
+
+  // Game transactions
+  addGameTransaction(transaction: InsertGameTransaction): Promise<GameTransaction>;
+  getTransactionsByUserId(userId: number, limit?: number): Promise<GameTransaction[]>;
+  
+  // Leaderboard functionality
+  getTopBalances(limit?: number): Promise<User[]>;
+  getTopWinners(limit?: number): Promise<{ user: User, stats: GameStat }[]>;
+  getTopWinRate(limit?: number): Promise<{ user: User, stats: GameStat, winRate: number }[]>;
+  
+  // Currency generation
+  claimDaily(userId: number): Promise<{ success: boolean; amount?: number; cooldown?: Date }>;
+  claimWork(userId: number): Promise<{ success: boolean; amount?: number; cooldown?: Date }>;
+
+  // Core game logic
+  playCoinflip(userId: number, betAmount: number, choice: 'heads' | 'tails'): Promise<{ success: boolean; result: string; winAmount?: number }>;
+  playBlackjack(userId: number, betAmount: number, playerAction: 'hit' | 'stand' | 'double'): Promise<{ success: boolean; playerHand: string[]; dealerHand: string[]; result: string; winAmount?: number }>;
+  playSlots(userId: number, betAmount: number): Promise<{ success: boolean; symbols: string[]; result: string; winAmount?: number }>;
+  playCrash(userId: number, betAmount: number, cashoutMultiplier: number): Promise<{ success: boolean; crashPoint: number; result: string; winAmount?: number }>;
+  playRoulette(userId: number, betAmount: number, betType: string, betValue: string | number): Promise<{ success: boolean; result: number; winAmount?: number }>;
+  playDice(userId: number, betAmount: number, prediction: 'higher' | 'lower', targetNumber: number): Promise<{ success: boolean; roll: number; result: string; winAmount?: number }>;
+}
+
+export class MemStorage implements IStorage {
+  private users: Map<number, User>;
+  private gameStats: Map<number, GameStat>; 
+  private transactions: GameTransaction[];
+  private currentUserId: number;
+  private currentStatId: number;
+  private currentTransactionId: number;
+
+  constructor() {
+    this.users = new Map();
+    this.gameStats = new Map();
+    this.transactions = [];
+    this.currentUserId = 1;
+    this.currentStatId = 1;
+    this.currentTransactionId = 1;
+  }
+
+  async getUser(id: number): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async getUserByDiscordId(discordId: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(user => user.discordId === discordId);
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const id = this.currentUserId++;
+    const user: User = { 
+      ...insertUser, 
+      id,
+      balance: 1000, // Default starting balance
+      joinDate: new Date()
+    };
+    this.users.set(id, user);
+    return user;
+  }
+
+  async updateUserBalance(userId: number, newBalance: number): Promise<User | undefined> {
+    const user = await this.getUser(userId);
+    if (!user) return undefined;
+    
+    const updatedUser = { ...user, balance: newBalance };
+    this.users.set(userId, updatedUser);
+    return updatedUser;
+  }
+
+  async getGameStats(userId: number): Promise<GameStat | undefined> {
+    return Array.from(this.gameStats.values()).find(stat => stat.userId === userId);
+  }
+
+  async createGameStats(stats: InsertGameStat): Promise<GameStat> {
+    const id = this.currentStatId++;
+    const newStats: GameStat = { ...stats, id };
+    this.gameStats.set(id, newStats);
+    return newStats;
+  }
+
+  async updateGameStats(userId: number, updates: Partial<GameStat>): Promise<GameStat | undefined> {
+    const existingStats = await this.getGameStats(userId);
+    
+    if (!existingStats) {
+      // Create new stats if they don't exist
+      const newStats: InsertGameStat = {
+        userId,
+        gamesPlayed: updates.gamesPlayed || 0,
+        gamesWon: updates.gamesWon || 0,
+        gamesLost: updates.gamesLost || 0,
+        totalWagered: updates.totalWagered || 0,
+        totalWon: updates.totalWon || 0,
+        totalLost: updates.totalLost || 0,
+        highestWin: updates.highestWin || 0,
+        highestLoss: updates.highestLoss || 0,
+        favoriteGame: updates.favoriteGame,
+        lastPlayed: updates.lastPlayed || new Date()
+      };
+      return this.createGameStats(newStats);
+    } else {
+      // Update existing stats
+      const updatedStats: GameStat = { ...existingStats, ...updates };
+      this.gameStats.set(existingStats.id, updatedStats);
+      return updatedStats;
+    }
+  }
+
+  async addGameTransaction(transaction: InsertGameTransaction): Promise<GameTransaction> {
+    const id = this.currentTransactionId++;
+    const newTransaction: GameTransaction = { 
+      ...transaction, 
+      id, 
+      timestamp: new Date() 
+    };
+    this.transactions.push(newTransaction);
+    return newTransaction;
+  }
+
+  async getTransactionsByUserId(userId: number, limit = 10): Promise<GameTransaction[]> {
+    return this.transactions
+      .filter(tx => tx.userId === userId)
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, limit);
+  }
+
+  async getTopBalances(limit = 10): Promise<User[]> {
+    return Array.from(this.users.values())
+      .sort((a, b) => b.balance - a.balance)
+      .slice(0, limit);
+  }
+
+  async getTopWinners(limit = 10): Promise<{ user: User, stats: GameStat }[]> {
+    const usersWithStats: { user: User, stats: GameStat }[] = [];
+    
+    for (const stat of this.gameStats.values()) {
+      const user = await this.getUser(stat.userId);
+      if (user) {
+        usersWithStats.push({ user, stats: stat });
+      }
+    }
+    
+    return usersWithStats
+      .sort((a, b) => b.stats.gamesWon - a.stats.gamesWon)
+      .slice(0, limit);
+  }
+
+  async getTopWinRate(limit = 10): Promise<{ user: User, stats: GameStat, winRate: number }[]> {
+    const usersWithWinRate: { user: User, stats: GameStat, winRate: number }[] = [];
+    
+    for (const stat of this.gameStats.values()) {
+      const user = await this.getUser(stat.userId);
+      if (user && stat.gamesPlayed > 0) {
+        const winRate = (stat.gamesWon / stat.gamesPlayed) * 100;
+        usersWithWinRate.push({ user, stats: stat, winRate });
+      }
+    }
+    
+    return usersWithWinRate
+      .sort((a, b) => b.winRate - a.winRate)
+      .slice(0, limit);
+  }
+
+  async claimDaily(userId: number): Promise<{ success: boolean; amount?: number; cooldown?: Date }> {
+    const user = await this.getUser(userId);
+    if (!user) return { success: false };
+    
+    const now = new Date();
+    // Check if daily was already claimed within 24 hours
+    if (user.dailyLastClaimed && (now.getTime() - user.dailyLastClaimed.getTime() < 24 * 60 * 60 * 1000)) {
+      const cooldown = new Date(user.dailyLastClaimed.getTime() + 24 * 60 * 60 * 1000);
+      return { success: false, cooldown };
+    }
+    
+    // Daily amount is 200 coins
+    const dailyAmount = 200;
+    const updatedUser = { 
+      ...user, 
+      balance: user.balance + dailyAmount,
+      dailyLastClaimed: now
+    };
+    
+    this.users.set(userId, updatedUser);
+    return { success: true, amount: dailyAmount };
+  }
+
+  async claimWork(userId: number): Promise<{ success: boolean; amount?: number; cooldown?: Date }> {
+    const user = await this.getUser(userId);
+    if (!user) return { success: false };
+    
+    const now = new Date();
+    // Check if work was already claimed within 1 hour
+    if (user.workLastClaimed && (now.getTime() - user.workLastClaimed.getTime() < 60 * 60 * 1000)) {
+      const cooldown = new Date(user.workLastClaimed.getTime() + 60 * 60 * 1000);
+      return { success: false, cooldown };
+    }
+    
+    // Work amount is random between 50-150 coins
+    const workAmount = Math.floor(Math.random() * 101) + 50;
+    const updatedUser = { 
+      ...user, 
+      balance: user.balance + workAmount,
+      workLastClaimed: now
+    };
+    
+    this.users.set(userId, updatedUser);
+    return { success: true, amount: workAmount };
+  }
+
+  async playCoinflip(userId: number, betAmount: number, choice: 'heads' | 'tails'): Promise<{ success: boolean; result: string; winAmount?: number }> {
+    const user = await this.getUser(userId);
+    if (!user) return { success: false, result: 'User not found' };
+    if (user.balance < betAmount) return { success: false, result: 'Insufficient balance' };
+    
+    // Deduct bet amount first
+    await this.updateUserBalance(userId, user.balance - betAmount);
+    
+    // 50/50 chance
+    const result = Math.random() < 0.5 ? 'heads' : 'tails';
+    const won = result === choice;
+    
+    // Update stats
+    const stats = await this.getGameStats(userId) || { 
+      id: this.currentStatId++,
+      userId,
+      gamesPlayed: 0,
+      gamesWon: 0,
+      gamesLost: 0,
+      totalWagered: 0,
+      totalWon: 0,
+      totalLost: 0,
+      highestWin: 0,
+      highestLoss: 0,
+      favoriteGame: GameType.COINFLIP,
+      lastPlayed: new Date()
+    };
+    
+    const statUpdates: Partial<GameStat> = {
+      gamesPlayed: stats.gamesPlayed + 1,
+      totalWagered: stats.totalWagered + betAmount,
+      lastPlayed: new Date(),
+      favoriteGame: GameType.COINFLIP
+    };
+    
+    let winAmount = 0;
+    if (won) {
+      // Win is 2x the bet
+      winAmount = betAmount * 2;
+      await this.updateUserBalance(userId, user.balance - betAmount + winAmount);
+      
+      statUpdates.gamesWon = stats.gamesWon + 1;
+      statUpdates.totalWon = stats.totalWon + winAmount;
+      statUpdates.highestWin = Math.max(stats.highestWin, winAmount);
+    } else {
+      statUpdates.gamesLost = stats.gamesLost + 1;
+      statUpdates.totalLost = stats.totalLost + betAmount;
+      statUpdates.highestLoss = Math.max(stats.highestLoss, betAmount);
+    }
+    
+    await this.updateGameStats(userId, statUpdates);
+    
+    // Add transaction record
+    await this.addGameTransaction({
+      userId,
+      gameType: GameType.COINFLIP,
+      betAmount,
+      outcome: won ? 'win' : 'loss',
+      winAmount: won ? winAmount : 0,
+      gameDetails: JSON.stringify({ playerChoice: choice, result })
+    });
+    
+    return { 
+      success: true, 
+      result: `Result: ${result.toUpperCase()}. You ${won ? 'won' : 'lost'}!`, 
+      winAmount: won ? winAmount : 0 
+    };
+  }
+
+  async playBlackjack(userId: number, betAmount: number, playerAction: 'hit' | 'stand' | 'double'): Promise<{ success: boolean; playerHand: string[]; dealerHand: string[]; result: string; winAmount?: number }> {
+    const user = await this.getUser(userId);
+    if (!user) return { success: false, playerHand: [], dealerHand: [], result: 'User not found' };
+    if (user.balance < betAmount) return { success: false, playerHand: [], dealerHand: [], result: 'Insufficient balance' };
+    
+    // Simplified blackjack implementation
+    const deck = this.createDeck();
+    this.shuffleDeck(deck);
+    
+    // Initial deal
+    const playerHand = [this.drawCard(deck), this.drawCard(deck)];
+    const dealerHand = [this.drawCard(deck), this.drawCard(deck)];
+    
+    // Calculate initial values
+    let playerValue = this.calculateHandValue(playerHand);
+    let dealerValue = this.calculateHandValue(dealerHand);
+    
+    // Process player action
+    if (playerAction === 'hit') {
+      playerHand.push(this.drawCard(deck));
+      playerValue = this.calculateHandValue(playerHand);
+    } else if (playerAction === 'double' && user.balance >= betAmount * 2) {
+      betAmount *= 2;
+      playerHand.push(this.drawCard(deck));
+      playerValue = this.calculateHandValue(playerHand);
+    }
+    
+    // Check if player busted
+    if (playerValue > 21) {
+      // Player busts, dealer wins
+      await this.updateUserBalance(userId, user.balance - betAmount);
+      
+      // Update stats
+      await this.updateBlackjackStats(userId, betAmount, false, 0);
+      
+      return {
+        success: true,
+        playerHand,
+        dealerHand,
+        result: `Bust! Your hand value: ${playerValue}. You lost ${betAmount} coins.`,
+        winAmount: 0
+      };
+    }
+    
+    // Dealer plays - dealer must hit until 17 or higher
+    while (dealerValue < 17) {
+      dealerHand.push(this.drawCard(deck));
+      dealerValue = this.calculateHandValue(dealerHand);
+    }
+    
+    // Determine winner
+    let result: string;
+    let won: boolean;
+    let winAmount = 0;
+    
+    if (dealerValue > 21 || playerValue > dealerValue) {
+      // Player wins
+      winAmount = betAmount * 2; // Payout 2:1
+      await this.updateUserBalance(userId, user.balance - betAmount + winAmount);
+      result = `You win! Your hand: ${playerValue}, Dealer: ${dealerValue}. You won ${winAmount} coins.`;
+      won = true;
+    } else if (playerValue === dealerValue) {
+      // Push - return bet
+      await this.updateUserBalance(userId, user.balance);
+      result = `Push! Your hand: ${playerValue}, Dealer: ${dealerValue}. Your bet has been returned.`;
+      won = false;
+      winAmount = betAmount; // Return original bet
+    } else {
+      // Dealer wins
+      await this.updateUserBalance(userId, user.balance - betAmount);
+      result = `Dealer wins! Your hand: ${playerValue}, Dealer: ${dealerValue}. You lost ${betAmount} coins.`;
+      won = false;
+    }
+    
+    // Update stats
+    await this.updateBlackjackStats(userId, betAmount, won, winAmount);
+    
+    return {
+      success: true,
+      playerHand,
+      dealerHand,
+      result,
+      winAmount
+    };
+  }
+  
+  async playSlots(userId: number, betAmount: number): Promise<{ success: boolean; symbols: string[]; result: string; winAmount?: number }> {
+    const user = await this.getUser(userId);
+    if (!user) return { success: false, symbols: [], result: 'User not found' };
+    if (user.balance < betAmount) return { success: false, symbols: [], result: 'Insufficient balance' };
+    
+    // Deduct bet amount first
+    await this.updateUserBalance(userId, user.balance - betAmount);
+    
+    // Spin the slots (3 reels)
+    const reels = Array(3).fill(0).map(() => 
+      SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
+    );
+    
+    const symbols = reels.map(reel => reel.symbol);
+    
+    // Check for wins
+    let winAmount = 0;
+    let won = false;
+    
+    // All 3 symbols match
+    if (symbols[0] === symbols[1] && symbols[1] === symbols[2]) {
+      const multiplier = SLOT_SYMBOLS.find(s => s.symbol === symbols[0])?.multiplier || 1;
+      winAmount = betAmount * multiplier;
+      won = true;
+    }
+    
+    // Update user balance if won
+    if (won) {
+      await this.updateUserBalance(userId, user.balance - betAmount + winAmount);
+    }
+    
+    // Update stats
+    const stats = await this.getGameStats(userId) || { 
+      id: this.currentStatId++,
+      userId,
+      gamesPlayed: 0,
+      gamesWon: 0,
+      gamesLost: 0,
+      totalWagered: 0,
+      totalWon: 0,
+      totalLost: 0,
+      highestWin: 0,
+      highestLoss: 0,
+      favoriteGame: GameType.SLOTS,
+      lastPlayed: new Date()
+    };
+    
+    const statUpdates: Partial<GameStat> = {
+      gamesPlayed: stats.gamesPlayed + 1,
+      totalWagered: stats.totalWagered + betAmount,
+      lastPlayed: new Date(),
+      favoriteGame: GameType.SLOTS
+    };
+    
+    if (won) {
+      statUpdates.gamesWon = stats.gamesWon + 1;
+      statUpdates.totalWon = stats.totalWon + winAmount;
+      statUpdates.highestWin = Math.max(stats.highestWin, winAmount);
+    } else {
+      statUpdates.gamesLost = stats.gamesLost + 1;
+      statUpdates.totalLost = stats.totalLost + betAmount;
+      statUpdates.highestLoss = Math.max(stats.highestLoss, betAmount);
+    }
+    
+    await this.updateGameStats(userId, statUpdates);
+    
+    // Add transaction record
+    await this.addGameTransaction({
+      userId,
+      gameType: GameType.SLOTS,
+      betAmount,
+      outcome: won ? 'win' : 'loss',
+      winAmount: won ? winAmount : 0,
+      gameDetails: JSON.stringify({ symbols, matchType: won ? 'triple' : 'none' })
+    });
+    
+    const result = won 
+      ? `🎰 You won ${winAmount} coins! (${symbols.join(' - ')})`
+      : `🎰 You lost ${betAmount} coins. (${symbols.join(' - ')})`;
+    
+    return { success: true, symbols, result, winAmount: won ? winAmount : 0 };
+  }
+  
+  async playCrash(userId: number, betAmount: number, cashoutMultiplier: number): Promise<{ success: boolean; crashPoint: number; result: string; winAmount?: number }> {
+    const user = await this.getUser(userId);
+    if (!user) return { success: false, crashPoint: 0, result: 'User not found' };
+    if (user.balance < betAmount) return { success: false, crashPoint: 0, result: 'Insufficient balance' };
+    
+    // Deduct bet amount first
+    await this.updateUserBalance(userId, user.balance - betAmount);
+    
+    // Generate crash point - exponential distribution for realistic crash game
+    // This generates a value typically between 1 and 10, with rare higher values
+    const crashPoint = Math.floor((Math.random() * 100) + 100) / 100;
+    
+    let won = false;
+    let winAmount = 0;
+    
+    // If player cashed out before crash
+    if (cashoutMultiplier <= crashPoint) {
+      won = true;
+      winAmount = Math.floor(betAmount * cashoutMultiplier);
+      await this.updateUserBalance(userId, user.balance - betAmount + winAmount);
+    }
+    
+    // Update stats
+    const stats = await this.getGameStats(userId) || { 
+      id: this.currentStatId++,
+      userId,
+      gamesPlayed: 0,
+      gamesWon: 0,
+      gamesLost: 0,
+      totalWagered: 0,
+      totalWon: 0,
+      totalLost: 0,
+      highestWin: 0,
+      highestLoss: 0,
+      favoriteGame: GameType.CRASH,
+      lastPlayed: new Date()
+    };
+    
+    const statUpdates: Partial<GameStat> = {
+      gamesPlayed: stats.gamesPlayed + 1,
+      totalWagered: stats.totalWagered + betAmount,
+      lastPlayed: new Date(),
+      favoriteGame: GameType.CRASH
+    };
+    
+    if (won) {
+      statUpdates.gamesWon = stats.gamesWon + 1;
+      statUpdates.totalWon = stats.totalWon + winAmount;
+      statUpdates.highestWin = Math.max(stats.highestWin, winAmount);
+    } else {
+      statUpdates.gamesLost = stats.gamesLost + 1;
+      statUpdates.totalLost = stats.totalLost + betAmount;
+      statUpdates.highestLoss = Math.max(stats.highestLoss, betAmount);
+    }
+    
+    await this.updateGameStats(userId, statUpdates);
+    
+    // Add transaction record
+    await this.addGameTransaction({
+      userId,
+      gameType: GameType.CRASH,
+      betAmount,
+      outcome: won ? 'win' : 'loss',
+      winAmount: won ? winAmount : 0,
+      gameDetails: JSON.stringify({ crashPoint, cashoutMultiplier })
+    });
+    
+    const result = won 
+      ? `📈 You cashed out at ${cashoutMultiplier.toFixed(2)}x and won ${winAmount} coins!`
+      : `💥 Crashed at ${crashPoint.toFixed(2)}x! You lost ${betAmount} coins.`;
+    
+    return { success: true, crashPoint, result, winAmount: won ? winAmount : 0 };
+  }
+  
+  async playRoulette(userId: number, betAmount: number, betType: string, betValue: string | number): Promise<{ success: boolean; result: number; winAmount?: number }> {
+    const user = await this.getUser(userId);
+    if (!user) return { success: false, result: -1 };
+    if (user.balance < betAmount) return { success: false, result: -1 };
+    
+    // Deduct bet amount first
+    await this.updateUserBalance(userId, user.balance - betAmount);
+    
+    // Spin the wheel (0-36)
+    const spinResult = Math.floor(Math.random() * 37);
+    
+    // Determine if player won based on bet type
+    let won = false;
+    let multiplier = 0;
+    
+    switch (betType) {
+      case 'number':
+        // Straight up bet on a single number (35:1)
+        won = spinResult === Number(betValue);
+        multiplier = 36; // 35:1 plus the original bet
+        break;
+      case 'color':
+        // Red or black (1:1)
+        const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+        const isRed = redNumbers.includes(spinResult);
+        won = (betValue === 'red' && isRed) || (betValue === 'black' && !isRed && spinResult !== 0);
+        multiplier = 2; // 1:1 plus the original bet
+        break;
+      case 'even_odd':
+        // Even or odd (1:1)
+        won = (betValue === 'even' && spinResult % 2 === 0 && spinResult !== 0) ||
+              (betValue === 'odd' && spinResult % 2 === 1);
+        multiplier = 2; // 1:1 plus the original bet
+        break;
+      case 'dozen':
+        // Dozen bet (2:1)
+        const dozen = Number(betValue);
+        won = (dozen === 1 && spinResult >= 1 && spinResult <= 12) ||
+              (dozen === 2 && spinResult >= 13 && spinResult <= 24) ||
+              (dozen === 3 && spinResult >= 25 && spinResult <= 36);
+        multiplier = 3; // 2:1 plus the original bet
+        break;
+      case 'high_low':
+        // High (19-36) or low (1-18) numbers (1:1)
+        won = (betValue === 'high' && spinResult >= 19 && spinResult <= 36) ||
+              (betValue === 'low' && spinResult >= 1 && spinResult <= 18);
+        multiplier = 2; // 1:1 plus the original bet
+        break;
+    }
+    
+    let winAmount = 0;
+    if (won) {
+      winAmount = betAmount * multiplier;
+      await this.updateUserBalance(userId, user.balance - betAmount + winAmount);
+    }
+    
+    // Update stats and record transaction
+    const stats = await this.getGameStats(userId) || { 
+      id: this.currentStatId++,
+      userId,
+      gamesPlayed: 0,
+      gamesWon: 0,
+      gamesLost: 0,
+      totalWagered: 0,
+      totalWon: 0,
+      totalLost: 0,
+      highestWin: 0,
+      highestLoss: 0,
+      favoriteGame: GameType.ROULETTE,
+      lastPlayed: new Date()
+    };
+    
+    const statUpdates: Partial<GameStat> = {
+      gamesPlayed: stats.gamesPlayed + 1,
+      totalWagered: stats.totalWagered + betAmount,
+      lastPlayed: new Date(),
+      favoriteGame: GameType.ROULETTE
+    };
+    
+    if (won) {
+      statUpdates.gamesWon = stats.gamesWon + 1;
+      statUpdates.totalWon = stats.totalWon + winAmount;
+      statUpdates.highestWin = Math.max(stats.highestWin, winAmount);
+    } else {
+      statUpdates.gamesLost = stats.gamesLost + 1;
+      statUpdates.totalLost = stats.totalLost + betAmount;
+      statUpdates.highestLoss = Math.max(stats.highestLoss, betAmount);
+    }
+    
+    await this.updateGameStats(userId, statUpdates);
+    
+    // Add transaction record
+    await this.addGameTransaction({
+      userId,
+      gameType: GameType.ROULETTE,
+      betAmount,
+      outcome: won ? 'win' : 'loss',
+      winAmount: won ? winAmount : 0,
+      gameDetails: JSON.stringify({ spinResult, betType, betValue })
+    });
+    
+    return { success: true, result: spinResult, winAmount: won ? winAmount : 0 };
+  }
+  
+  async playDice(userId: number, betAmount: number, prediction: 'higher' | 'lower', targetNumber: number): Promise<{ success: boolean; roll: number; result: string; winAmount?: number }> {
+    const user = await this.getUser(userId);
+    if (!user) return { success: false, roll: 0, result: 'User not found' };
+    if (user.balance < betAmount) return { success: false, roll: 0, result: 'Insufficient balance' };
+    
+    // Validate target number (1-100)
+    if (targetNumber < 1 || targetNumber > 100) {
+      return { success: false, roll: 0, result: 'Target number must be between 1 and 100' };
+    }
+    
+    // Deduct bet amount first
+    await this.updateUserBalance(userId, user.balance - betAmount);
+    
+    // Roll the dice (1-100)
+    const roll = Math.floor(Math.random() * 100) + 1;
+    
+    // Determine if player won
+    let won = false;
+    if (prediction === 'higher' && roll > targetNumber) {
+      won = true;
+    } else if (prediction === 'lower' && roll < targetNumber) {
+      won = true;
+    }
+    
+    // Calculate win amount based on probability
+    // The more unlikely the win, the higher the multiplier
+    let multiplier = 1;
+    if (won) {
+      if (prediction === 'higher') {
+        // Higher gets harder as target number increases
+        multiplier = 100 / (100 - targetNumber);
+      } else {
+        // Lower gets harder as target number decreases
+        multiplier = 100 / targetNumber;
+      }
+    }
+    
+    let winAmount = 0;
+    if (won) {
+      winAmount = Math.floor(betAmount * multiplier);
+      await this.updateUserBalance(userId, user.balance - betAmount + winAmount);
+    }
+    
+    // Update stats
+    const stats = await this.getGameStats(userId) || { 
+      id: this.currentStatId++,
+      userId,
+      gamesPlayed: 0,
+      gamesWon: 0,
+      gamesLost: 0,
+      totalWagered: 0,
+      totalWon: 0,
+      totalLost: 0,
+      highestWin: 0,
+      highestLoss: 0,
+      favoriteGame: GameType.DICE,
+      lastPlayed: new Date()
+    };
+    
+    const statUpdates: Partial<GameStat> = {
+      gamesPlayed: stats.gamesPlayed + 1,
+      totalWagered: stats.totalWagered + betAmount,
+      lastPlayed: new Date(),
+      favoriteGame: GameType.DICE
+    };
+    
+    if (won) {
+      statUpdates.gamesWon = stats.gamesWon + 1;
+      statUpdates.totalWon = stats.totalWon + winAmount;
+      statUpdates.highestWin = Math.max(stats.highestWin, winAmount);
+    } else {
+      statUpdates.gamesLost = stats.gamesLost + 1;
+      statUpdates.totalLost = stats.totalLost + betAmount;
+      statUpdates.highestLoss = Math.max(stats.highestLoss, betAmount);
+    }
+    
+    await this.updateGameStats(userId, statUpdates);
+    
+    // Add transaction record
+    await this.addGameTransaction({
+      userId,
+      gameType: GameType.DICE,
+      betAmount,
+      outcome: won ? 'win' : 'loss',
+      winAmount: won ? winAmount : 0,
+      gameDetails: JSON.stringify({ roll, prediction, targetNumber })
+    });
+    
+    const result = won 
+      ? `🎲 Rolled ${roll}! You ${prediction === 'higher' ? '>' : '<'} ${targetNumber}. You won ${winAmount} coins!`
+      : `🎲 Rolled ${roll}! You ${prediction === 'higher' ? '>' : '<'} ${targetNumber}. You lost ${betAmount} coins.`;
+    
+    return { success: true, roll, result, winAmount: won ? winAmount : 0 };
+  }
+
+  // Helper methods
+  private createDeck(): string[] {
+    const suits = ['♠', '♥', '♦', '♣'];
+    const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+    const deck: string[] = [];
+    
+    for (const suit of suits) {
+      for (const value of values) {
+        deck.push(`${value}${suit}`);
+      }
+    }
+    
+    return deck;
+  }
+  
+  private shuffleDeck(deck: string[]): void {
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]]; // Swap
+    }
+  }
+  
+  private drawCard(deck: string[]): string {
+    if (deck.length === 0) throw new Error('Deck is empty');
+    return deck.pop()!;
+  }
+  
+  private calculateHandValue(hand: string[]): number {
+    let value = 0;
+    let aces = 0;
+    
+    for (const card of hand) {
+      const cardValue = card.slice(0, -1); // Remove suit
+      
+      if (cardValue === 'A') {
+        aces++;
+        value += 11;
+      } else if (['J', 'Q', 'K'].includes(cardValue)) {
+        value += 10;
+      } else {
+        value += parseInt(cardValue);
+      }
+    }
+    
+    // Adjust for aces if needed
+    while (value > 21 && aces > 0) {
+      value -= 10; // Convert an ace from 11 to 1
+      aces--;
+    }
+    
+    return value;
+  }
+  
+  private async updateBlackjackStats(userId: number, betAmount: number, won: boolean, winAmount: number): Promise<void> {
+    const stats = await this.getGameStats(userId) || { 
+      id: this.currentStatId++,
+      userId,
+      gamesPlayed: 0,
+      gamesWon: 0,
+      gamesLost: 0,
+      totalWagered: 0,
+      totalWon: 0,
+      totalLost: 0,
+      highestWin: 0,
+      highestLoss: 0,
+      favoriteGame: GameType.BLACKJACK,
+      lastPlayed: new Date()
+    };
+    
+    const statUpdates: Partial<GameStat> = {
+      gamesPlayed: stats.gamesPlayed + 1,
+      totalWagered: stats.totalWagered + betAmount,
+      lastPlayed: new Date(),
+      favoriteGame: GameType.BLACKJACK
+    };
+    
+    if (won) {
+      statUpdates.gamesWon = stats.gamesWon + 1;
+      statUpdates.totalWon = stats.totalWon + winAmount;
+      statUpdates.highestWin = Math.max(stats.highestWin, winAmount);
+    } else {
+      statUpdates.gamesLost = stats.gamesLost + 1;
+      statUpdates.totalLost = stats.totalLost + betAmount;
+      statUpdates.highestLoss = Math.max(stats.highestLoss, betAmount);
+    }
+    
+    await this.updateGameStats(userId, statUpdates);
+    
+    // Add transaction record
+    await this.addGameTransaction({
+      userId,
+      gameType: GameType.BLACKJACK,
+      betAmount,
+      outcome: won ? 'win' : 'loss',
+      winAmount: won ? winAmount : 0,
+      gameDetails: JSON.stringify({ outcome: won ? 'win' : 'loss' })
+    });
+  }
+}
+
+export const storage = new MemStorage();
