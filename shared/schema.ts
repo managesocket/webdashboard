@@ -1,55 +1,258 @@
-import { pgTable, text, serial, integer, boolean, timestamp, uniqueIndex, numeric } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, jsonb, boolean, timestamp, pgEnum, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { relations } from "drizzle-orm";
 
-// User data
+// Enums
+export const gameTypeEnum = pgEnum('game_type', [
+  'blackjack',
+  'coinflip',
+  'crash',
+  'slots',
+  'roulette',
+  'dice',
+  'race',
+  'roll',
+  'sevens',
+  'connectfour',
+  'tictactoe',
+  'higherorlower',
+  'poker',
+  'rockpaperscissors',
+  'findthelady'
+]);
+
+export const outcomeEnum = pgEnum('outcome', [
+  'win',
+  'loss',
+  'tie',
+  'crash',
+  'abort',
+  'pending'
+]);
+
+// Users table
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  username: text("username").notNull().unique(),
-  discordId: text("discord_id").notNull().unique(),
-  balance: integer("balance").notNull().default(1000),
+  username: text("username").notNull(),
+  discordId: text("discord_id").unique(),
+  avatarUrl: text("avatar_url"),
+  balance: integer("balance").default(1000).notNull(),
+  level: integer("level").default(0).notNull(),
+  xp: integer("xp").default(0).notNull(),
   dailyLastClaimed: timestamp("daily_last_claimed"),
   workLastClaimed: timestamp("work_last_claimed"),
-  joinDate: timestamp("join_date").notNull().defaultNow(),
-  avatarUrl: text("avatar_url"),
+  weeklyLastClaimed: timestamp("weekly_last_claimed"),
+  monthlyLastClaimed: timestamp("monthly_last_claimed"),
+  yearlyLastClaimed: timestamp("yearly_last_claimed"),
+  overtimeLastClaimed: timestamp("overtime_last_claimed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Game statistics for users
 export const gameStats = pgTable("game_stats", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
-  gamesPlayed: integer("games_played").notNull().default(0),
-  gamesWon: integer("games_won").notNull().default(0),
-  gamesLost: integer("games_lost").notNull().default(0),
-  totalWagered: integer("total_wagered").notNull().default(0),
-  totalWon: integer("total_won").notNull().default(0),
-  totalLost: integer("total_lost").notNull().default(0),
-  highestWin: integer("highest_win").notNull().default(0),
-  highestLoss: integer("highest_loss").notNull().default(0),
+  gamesPlayed: integer("games_played").default(0).notNull(),
+  gamesWon: integer("games_won").default(0).notNull(),
+  gamesLost: integer("games_lost").default(0).notNull(),
+  totalWagered: integer("total_wagered").default(0).notNull(),
+  totalWon: integer("total_won").default(0).notNull(),
+  totalLost: integer("total_lost").default(0).notNull(),
+  highestWin: integer("highest_win").default(0).notNull(),
+  highestLoss: integer("highest_loss").default(0).notNull(),
   favoriteGame: text("favorite_game"),
-  lastPlayed: timestamp("last_played"),
+  lastPlayed: timestamp("last_played").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Game transactions history
+// Game transaction history
 export const gameTransactions = pgTable("game_transactions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
-  gameType: text("game_type").notNull(),
+  gameType: gameTypeEnum("game_type").notNull(),
   betAmount: integer("bet_amount").notNull(),
-  outcome: text("outcome").notNull(), // win, loss
-  winAmount: integer("win_amount"),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
-  gameDetails: text("game_details"), // JSON stringified details
+  outcome: outcomeEnum("outcome").notNull(),
+  winAmount: integer("win_amount").default(0).notNull(),
+  gameDetails: jsonb("game_details"), // Store game-specific details
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
+
+// Mining system
+export const miningProfiles = pgTable("mining_profiles", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id).unique(),
+  mineName: text("mine_name").notNull(),
+  level: integer("level").default(1).notNull(),
+  prestigeLevel: integer("prestige_level").default(0).notNull(),
+  lastDig: timestamp("last_dig"),
+  lastProcess: timestamp("last_process"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Mining resources inventory
+export const miningInventory = pgTable("mining_inventory", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id).unique(),
+  coal: integer("coal").default(0).notNull(),
+  ore: integer("ore").default(0).notNull(),
+  unprocessedMaterials: integer("unprocessed_materials").default(0).notNull(),
+  diamonds: integer("diamonds").default(0).notNull(),
+  emeralds: integer("emeralds").default(0).notNull(),
+  lapis: integer("lapis").default(0).notNull(),
+  redstone: integer("redstone").default(0).notNull(),
+  techPacks: integer("tech_packs").default(0).notNull(),
+  utilityPacks: integer("utility_packs").default(0).notNull(),
+  productionPacks: integer("production_packs").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Mining units
+export const miningUnits = pgTable("mining_units", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  unitType: text("unit_type").notNull(),
+  level: integer("level").default(1).notNull(),
+  quantity: integer("quantity").default(1).notNull(),
+  efficiency: integer("efficiency").default(100).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Items and inventory
+export const items = pgTable("items", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull(),
+  type: text("type").notNull(), // boost, loot, utility, etc.
+  price: integer("price").notNull(),
+  sellPrice: integer("sell_price").notNull(),
+  properties: jsonb("properties"), // Store item-specific properties
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// User inventory of items
+export const inventory = pgTable("inventory", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  itemId: integer("item_id").notNull().references(() => items.id),
+  quantity: integer("quantity").default(1).notNull(),
+  acquired: timestamp("acquired").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+});
+
+// Active boosts
+export const activeBoosts = pgTable("active_boosts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  boostType: text("boost_type").notNull(),
+  multiplier: integer("multiplier").notNull(),
+  remainingUses: integer("remaining_uses"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Lottery system
+export const lotteryDraws = pgTable("lottery_draws", {
+  id: serial("id").primaryKey(),
+  drawDate: timestamp("draw_date").notNull(),
+  jackpot: integer("jackpot").default(0).notNull(),
+  completed: boolean("completed").default(false).notNull(),
+  winningTicket: integer("winning_ticket"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const lotteryTickets = pgTable("lottery_tickets", {
+  id: serial("id").primaryKey(),
+  drawId: integer("draw_id").notNull().references(() => lotteryDraws.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  ticketNumber: integer("ticket_number").notNull(),
+  purchased: timestamp("purchased").defaultNow().notNull(),
+});
+
+// Daily goals/tasks
+export const dailyGoals = pgTable("daily_goals", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  goalType: text("goal_type").notNull(),
+  requirement: integer("requirement").notNull(),
+  progress: integer("progress").default(0).notNull(),
+  completed: boolean("completed").default(false).notNull(),
+  reward: integer("reward").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Define relations
+export const usersRelations = relations(users, ({ many }) => ({
+  gameStats: many(gameStats),
+  transactions: many(gameTransactions),
+  miningProfile: many(miningProfiles),
+  miningInventory: many(miningInventory),
+  miningUnits: many(miningUnits),
+  inventory: many(inventory),
+  activeBoosts: many(activeBoosts),
+  lotteryTickets: many(lotteryTickets),
+  dailyGoals: many(dailyGoals),
+}));
+
+export const gameStatsRelations = relations(gameStats, ({ one }) => ({
+  user: one(users, {
+    fields: [gameStats.userId],
+    references: [users.id],
+  }),
+}));
+
+export const gameTransactionsRelations = relations(gameTransactions, ({ one }) => ({
+  user: one(users, {
+    fields: [gameTransactions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const miningProfilesRelations = relations(miningProfiles, ({ one }) => ({
+  user: one(users, {
+    fields: [miningProfiles.userId],
+    references: [users.id],
+  }),
+}));
+
+export const inventoryRelations = relations(inventory, ({ one }) => ({
+  user: one(users, {
+    fields: [inventory.userId],
+    references: [users.id],
+  }),
+  item: one(items, {
+    fields: [inventory.itemId],
+    references: [items.id],
+  }),
+}));
+
+export const lotteryTicketsRelations = relations(lotteryTickets, ({ one }) => ({
+  user: one(users, {
+    fields: [lotteryTickets.userId],
+    references: [users.id],
+  }),
+  draw: one(lotteryDraws, {
+    fields: [lotteryTickets.drawId],
+    references: [lotteryDraws.id],
+  }),
+}));
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
-  joinDate: true,
+  createdAt: true,
+  updatedAt: true,
 });
 
 export const insertGameStatSchema = createInsertSchema(gameStats).omit({
   id: true,
+  createdAt: true,
+  updatedAt: true,
 });
 
 export const insertGameTransactionSchema = createInsertSchema(gameTransactions).omit({
@@ -57,17 +260,81 @@ export const insertGameTransactionSchema = createInsertSchema(gameTransactions).
   timestamp: true,
 });
 
-// Select types
+export const insertMiningProfileSchema = createInsertSchema(miningProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMiningInventorySchema = createInsertSchema(miningInventory).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export const insertMiningUnitSchema = createInsertSchema(miningUnits).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertItemSchema = createInsertSchema(items).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertInventorySchema = createInsertSchema(inventory).omit({
+  id: true,
+  acquired: true,
+});
+
+export const insertActiveBoostSchema = createInsertSchema(activeBoosts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertLotteryDrawSchema = createInsertSchema(lotteryDraws).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertLotteryTicketSchema = createInsertSchema(lotteryTickets).omit({
+  id: true,
+  purchased: true,
+});
+
+export const insertDailyGoalSchema = createInsertSchema(dailyGoals).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Types
 export type User = typeof users.$inferSelect;
 export type GameStat = typeof gameStats.$inferSelect;
 export type GameTransaction = typeof gameTransactions.$inferSelect;
+export type MiningProfile = typeof miningProfiles.$inferSelect;
+export type MiningInventory = typeof miningInventory.$inferSelect;
+export type MiningUnit = typeof miningUnits.$inferSelect;
+export type Item = typeof items.$inferSelect;
+export type Inventory = typeof inventory.$inferSelect;
+export type ActiveBoost = typeof activeBoosts.$inferSelect;
+export type LotteryDraw = typeof lotteryDraws.$inferSelect;
+export type LotteryTicket = typeof lotteryTickets.$inferSelect;
+export type DailyGoal = typeof dailyGoals.$inferSelect;
 
-// Insert types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertGameStat = z.infer<typeof insertGameStatSchema>;
 export type InsertGameTransaction = z.infer<typeof insertGameTransactionSchema>;
+export type InsertMiningProfile = z.infer<typeof insertMiningProfileSchema>;
+export type InsertMiningInventory = z.infer<typeof insertMiningInventorySchema>;
+export type InsertMiningUnit = z.infer<typeof insertMiningUnitSchema>;
+export type InsertItem = z.infer<typeof insertItemSchema>;
+export type InsertInventory = z.infer<typeof insertInventorySchema>;
+export type InsertActiveBoost = z.infer<typeof insertActiveBoostSchema>;
+export type InsertLotteryDraw = z.infer<typeof insertLotteryDrawSchema>;
+export type InsertLotteryTicket = z.infer<typeof insertLotteryTicketSchema>;
+export type InsertDailyGoal = z.infer<typeof insertDailyGoalSchema>;
 
-// Game specific types
+// Game Types enum
 export enum GameType {
   BLACKJACK = "blackjack",
   COINFLIP = "coinflip",
@@ -75,8 +342,18 @@ export enum GameType {
   SLOTS = "slots",
   ROULETTE = "roulette",
   DICE = "dice",
+  RACE = "race",
+  ROLL = "roll",
+  SEVENS = "sevens",
+  CONNECTFOUR = "connectfour",
+  TICTACTOE = "tictactoe",
+  HIGHERORLOWER = "higherorlower",
+  POKER = "poker",
+  ROCKPAPERSCISSORS = "rockpaperscissors",
+  FINDTHELADY = "findthelady"
 }
 
+// Slot machine symbols with their multipliers
 export interface SlotSymbol {
   name: string;
   multiplier: number;
@@ -84,12 +361,13 @@ export interface SlotSymbol {
 }
 
 export const SLOT_SYMBOLS: SlotSymbol[] = [
-  { name: "Seven", multiplier: 15, symbol: "sseven" },
-  { name: "Diamond", multiplier: 12, symbol: "sdiamond" },
-  { name: "Bar", multiplier: 10, symbol: "sbar" },
-  { name: "Cherry", multiplier: 8, symbol: "scherry" },
-  { name: "Bell", multiplier: 7, symbol: "sbell" },
-  { name: "Lemon", multiplier: 5, symbol: "slemon" },
-  { name: "Melon", multiplier: 4, symbol: "smelon" },
-  { name: "Heart", multiplier: 3, symbol: "sheart" },
+  { name: "Seven", multiplier: 500, symbol: "sseven" },
+  { name: "Diamond", multiplier: 25, symbol: "sdiamond" },
+  { name: "Bar", multiplier: 5, symbol: "sbar" },
+  { name: "Bell", multiplier: 3, symbol: "sbell" },
+  { name: "Shoe", multiplier: 2, symbol: "sshoe" },
+  { name: "Lemon", multiplier: 1, symbol: "slemon" },
+  { name: "Melon", multiplier: 0.75, symbol: "smelon" },
+  { name: "Heart", multiplier: 0.5, symbol: "sheart" },
+  { name: "Cherry", multiplier: 0.25, symbol: "scherry" },
 ];
