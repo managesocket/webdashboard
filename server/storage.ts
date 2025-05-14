@@ -81,7 +81,18 @@ export class MemStorage implements IStorage {
       ...insertUser, 
       id,
       balance: 1000, // Default starting balance
-      joinDate: new Date()
+      level: 0,
+      xp: 0,
+      discordId: insertUser.discordId || null,
+      avatarUrl: insertUser.avatarUrl || null,
+      dailyLastClaimed: null,
+      workLastClaimed: null,
+      weeklyLastClaimed: null,
+      monthlyLastClaimed: null,
+      yearlyLastClaimed: null,
+      overtimeLastClaimed: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
     this.users.set(id, user);
     return user;
@@ -102,7 +113,22 @@ export class MemStorage implements IStorage {
 
   async createGameStats(stats: InsertGameStat): Promise<GameStat> {
     const id = this.currentStatId++;
-    const newStats: GameStat = { ...stats, id };
+    const newStats: GameStat = { 
+      ...stats, 
+      id,
+      gamesPlayed: stats.gamesPlayed || 0,
+      gamesWon: stats.gamesWon || 0,
+      gamesLost: stats.gamesLost || 0,
+      totalWagered: stats.totalWagered || 0,
+      totalWon: stats.totalWon || 0,
+      totalLost: stats.totalLost || 0,
+      highestWin: stats.highestWin || 0,
+      highestLoss: stats.highestLoss || 0,
+      favoriteGame: stats.favoriteGame || null,
+      lastPlayed: stats.lastPlayed || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
     this.gameStats.set(id, newStats);
     return newStats;
   }

@@ -6,12 +6,12 @@ async function main() {
     console.log('Starting database migrations...');
     
     // Push schema changes to database
-    await sql`CREATE EXTENSION IF NOT EXISTS pg_trgm;`.execute(db);
+    await db.execute(sql`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
     
     console.log('Creating enums...');
     
     // Create enums
-    await sql`
+    await db.execute(sql`
       DO $$ 
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'game_type') THEN
@@ -28,14 +28,14 @@ async function main() {
           );
         END IF;
       END $$;
-    `.execute(db);
+    `);
     
     console.log('Creating tables...');
     
     // Create tables
     
     // Users table
-    await sql`
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         username TEXT NOT NULL,
@@ -53,10 +53,10 @@ async function main() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-    `.execute(db);
+    `);
     
     // Game stats table
-    await sql`
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS game_stats (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -73,10 +73,10 @@ async function main() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-    `.execute(db);
+    `);
     
     // Game transactions table
-    await sql`
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS game_transactions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -87,10 +87,10 @@ async function main() {
         game_details JSONB,
         timestamp TIMESTAMP NOT NULL DEFAULT NOW()
       );
-    `.execute(db);
+    `);
     
     // Create mining system tables
-    await sql`
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS mining_profiles (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
@@ -102,7 +102,9 @@ async function main() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-      
+    `);
+    
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS mining_inventory (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
@@ -118,7 +120,9 @@ async function main() {
         production_packs INTEGER NOT NULL DEFAULT 0,
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-      
+    `);
+    
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS mining_units (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -129,10 +133,10 @@ async function main() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-    `.execute(db);
+    `);
     
     // Create items and inventory system
-    await sql`
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS items (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL UNIQUE,
@@ -143,7 +147,9 @@ async function main() {
         properties JSONB,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-      
+    `);
+    
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS inventory (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -152,7 +158,9 @@ async function main() {
         acquired TIMESTAMP NOT NULL DEFAULT NOW(),
         expires_at TIMESTAMP
       );
-      
+    `);
+    
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS active_boosts (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -162,10 +170,10 @@ async function main() {
         expires_at TIMESTAMP,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-    `.execute(db);
+    `);
     
     // Create lottery system
-    await sql`
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS lottery_draws (
         id SERIAL PRIMARY KEY,
         draw_date TIMESTAMP NOT NULL,
@@ -174,7 +182,9 @@ async function main() {
         winning_ticket INTEGER,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-      
+    `);
+    
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS lottery_tickets (
         id SERIAL PRIMARY KEY,
         draw_id INTEGER NOT NULL REFERENCES lottery_draws(id),
@@ -182,10 +192,10 @@ async function main() {
         ticket_number INTEGER NOT NULL,
         purchased TIMESTAMP NOT NULL DEFAULT NOW()
       );
-    `.execute(db);
+    `);
     
     // Create daily goals
-    await sql`
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS daily_goals (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -197,10 +207,10 @@ async function main() {
         expires_at TIMESTAMP NOT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
-    `.execute(db);
+    `);
     
     // Create indexes for performance
-    await sql`
+    await db.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_user_discord_id ON users(discord_id);
       CREATE INDEX IF NOT EXISTS idx_game_stats_user_id ON game_stats(user_id);
       CREATE INDEX IF NOT EXISTS idx_game_transactions_user_id ON game_transactions(user_id);
@@ -215,7 +225,7 @@ async function main() {
       CREATE INDEX IF NOT EXISTS idx_lottery_tickets_user_id ON lottery_tickets(user_id);
       CREATE INDEX IF NOT EXISTS idx_daily_goals_user_id ON daily_goals(user_id);
       CREATE INDEX IF NOT EXISTS idx_daily_goals_expires_at ON daily_goals(expires_at);
-    `.execute(db);
+    `);
     
     console.log('Migration completed successfully');
   } catch (error) {
