@@ -1,0 +1,203 @@
+# Piglet Gambling Bot Guide
+
+## Interacting with the Bot
+The bot uses slash commands and can be mentioned using @Piglet Gambling Bot.
+
+Each slash command shows available options, with some being required and others optional.
+
+## Getting Started
+Players begin with 1,000 coins and level 0. The bot uses a global economy, so your profile works across all servers.
+
+### Basic Commands
+- `/profile` - View your profile
+- `/flip` - Flip a coin
+- `/blackjack` - Play blackjack
+- `/daily` - Get daily rewards
+- `/vote` - Earn rewards by voting
+- `/shop` - View available items
+- `/buy` - Purchase items
+- `/boosts` - Manage your boosts
+
+## Understanding Bets
+You can bet using:
+- Specific amounts (e.g. 100)
+- 'max' or 'm' for maximum bet
+- Shorthand values:
+  - k = 1,000
+  - m = 1,000,000
+  - b = 1,000,000,000
+
+## Earning Money
+### Regular Income
+- `/daily` - Daily rewards (resets at midnight)
+- `/hourly` - Hourly rewards (requires donor status)
+- `/vote` - Vote rewards with streak bonuses
+
+### Gambling Games
+
+#### Blackjack (/blackjack, /bj)
+- Standard 6-deck game (312 cards)
+- Blackjack pays 3:2 (Easy) or 2:1 (Hard)
+- Easy mode shows card totals
+- Hard mode requires manual counting
+- Win XP: 100
+
+#### Coin Flip (/flip, /cf)
+- Choose heads or tails
+- 1:1 payout
+- Win XP: 100
+
+#### Slots (/slots, /sl)
+Payouts:
+- 7️⃣7️⃣7️⃣ = 500:1
+- 💎💎💎 = 25:1
+- 📊📊📊 = 5:1
+- 🔔🔔🔔 = 3:1
+- Two matching symbols pay less
+
+#### Roulette (/roulette, /rou)
+Bet types:
+- Single numbers (0-36)
+- Colors (red/black)
+- Sections (1st12, 2nd12, 3rd12)
+- Ranges (1-18, 19-36)
+
+#### Race (/race, /r)
+Race types:
+- 🐢 Turtle (3:1, 3 racers)
+- 🐕 Dog (5:1, 5 racers)
+- 🏇 Horse (8:1, 8 racers)
+- 🦖 Dinosaur (12:1, 12 racers)
+
+#### Dice (/roll, /rd)
+- Available dice: d4, d6, d8, d10, d12, d20
+- Payout equals dice size (e.g., d20 pays 20:1)
+
+## Mining System
+
+### Getting Started with Mining
+- `/startmine [name]` - Begin your mining career
+- `/mine` - View mine stats and shop
+- `/dig` - Collect resources (1min cooldown)
+- `/process` - Process raw materials into gems
+
+### Mining Resources
+Players can collect:
+- Coal
+- Ores
+- Unprocessed Materials (UM)
+- Gems (from processing):
+  - Diamonds
+  - Emeralds
+  - Lapis
+  - Redstone
+
+### Crafting System
+- `/craft [type] [amount]` - Create resource packs
+  - Tech Pack
+  - Utility Pack
+  - Production Pack
+Use 'm' for maximum craft amount
+
+### Mine Management
+- `/inventory` - View mining resources
+- `/mine shop` - Browse mining units
+- `/miner [upgrade] [amount]` - Upgrade mining units
+
+## Economy Commands
+
+### Regular Income Commands
+- `/daily` - 1,000-5,000 coins (24h cooldown)
+- `/weekly` - 5,000-10,000 coins (7d cooldown)
+- `/monthly` - 100,000-500,000 coins (30d cooldown)
+- `/yearly` - 10M-50M coins (365d cooldown)
+- `/work` - 100-500 coins (1h cooldown)
+- `/overtime` - 500-1,000 coins (2h cooldown)
+
+### Player Interaction
+- `/send <user> <amount>` - Transfer money (tax applies)
+- `/gift <user>` - Send free gifts (12h cooldown, 5 gifts)
+- `/profile [page]` - View your stats
+  - Pages: score, stats, mine, inventory, achievements
+
+### Lottery System
+- `/lotto [amount]` - Buy lottery tickets
+  - Cost: 1,000 per ticket
+  - Max: 1,000 tickets per player
+  - Draw: Saturdays at 11:00am
+
+## Shop & Items
+
+### Shop Commands
+- `/shop [type] [page]` - Browse shops
+  - Types: mine, items, credits
+- `/buy <item> <amount>` - Purchase items
+- `/sell <item> <amount>` - Sell items
+- `/boosts` - Manage active boosts
+
+### Special Features
+- `/spin` - Wheel of fortune (2h cooldown)
+- `/vote` - Vote rewards
+  - 12h cooldown per voting site
+  - Streak bonuses every 7 days
+  - Weekend double rewards
+
+## Betting Commands
+All games use the format:
+/command [bet] [options]
+
+Bet shortcuts:
+- max/m - Maximum bet
+- allin/a - All-in bet
+- 1k = 1,000
+- 1m = 1,000,000
+- 1b = 1,000,000,000
+
+## Leaderboards
+- `/leaderboard <type> [global]` - View rankings
+  - Types: player, game, item, mining
+  - Add 'global' for worldwide rankings
+
+## Utility Commands
+
+### Help & Information
+- `/help [command]` - Show command help
+  - Can search for specific commands
+  - View game rules and payouts
+  - Check command aliases
+- `/stats` - View bot statistics
+- `/invite` - Get bot invite link
+- `/support` - Join support server
+
+### Account Management
+- `/donate` - Support bot development
+  - PayPal options
+  - Patreon subscription
+- `/deletemydata` - Reset account
+  - ⚠️ Warning: This action is irreversible
+  - Removes all progress and items
+
+## Server Configuration
+Server owners and admins can customize the bot using these commands:
+
+### Basic Settings
+- `/guild show` - View current settings
+- `/guild channel [#channel]` - Set allowed channels
+- `/guild adminids` - Manage admin permissions
+  - `/guild adminids add @user`
+  - `/guild adminids delete @user`
+
+### Donor Features
+- `/guild cashname <name>` - Custom currency name (24 char max)
+- `/guild cashmoji <emoji>` - Custom currency emoji
+- `/guild cryptoname <name>` - Custom mining currency name
+- `/guild cryptomoji <emoji>` - Custom mining currency emoji
+
+### Other Settings
+- `/guild disableupdates <true|false>` - Toggle update messages
+- `/updates` - View latest bot changes
+
+## Need Help?
+Use `/help [command]` to get detailed information about any command.
+
+Join our support server for assistance and updates!
